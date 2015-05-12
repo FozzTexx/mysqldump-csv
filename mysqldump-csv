@@ -1,0 +1,55 @@
+#!/bin/sh
+#
+# Copyright 2015 by Chris Osborn <fozztexx@fozztexx.com>
+# http://insentricity.com
+#
+# mysqldump-csv is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2, or (at
+# your option) any later version.
+#
+# Quick & dirty script to output all tables from a mysql database in
+# CSV format. Data is output from mysql as tab separated and a Python
+# script converts TSV to CSV. After dumping all tables everything is
+# zipped up and left in the current directory. Makes no attempt to
+# actually parse the arguments.
+#
+# call like:
+#   mysqldump-csv --user=user --password=password dbname
+
+MYSQLARGS="$@"
+DATABASE=${*: -1}
+DBDIR="/tmp/csvdump.$$/${DATABASE}"
+
+if [ -e "${DATABASE}.zip" ] ; then
+    echo "${DATABASE}.zip" exists. Aborting.
+    exit 1
+fi
+
+read -d '' TAB2CSV << EOF
+import sys
+import csv
+
+tabin = csv.reader(sys.stdin, dialect=csv.excel_tab)
+commaout = csv.writer(sys.stdout, dialect=csv.excel)
+for row in tabin:
+      commaout.writerow(row)
+EOF
+
+TABLES=`echo 'show tables' | mysql -B $MYSQLARGS | tail -n +2`
+
+CURD="${PWD}"
+mkdir -p "${DBDIR}"
+cd "${DBDIR}"
+for table in ${TABLES} ; do
+    echo "${table}"
+    echo "select * from ${table}" | mysql -B $MYSQLARGS \
+	| sed -e 's/\r/\\r/g' | python -c "${TAB2CSV}" \
+	> "${table}.csv"
+done
+
+cd ..
+zip -r "${DATABASE}.zip" "${DATABASE}"
+mv "${DATABASE}.zip" "${CURD}"
+cd "${CURD}"
+rm -rf "${DBDIR}"
